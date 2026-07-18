@@ -20,9 +20,9 @@ LINE_USER_ID = os.environ.get("LINE_USER_ID")
 
 # --- 監視したいキーワード（選手名など）。ここを自由に足し引きする ---
 KEYWORDS = [
-    "Shohei Ohtani",
-    "Tomoyuki Sugano",
-    "Munetaka Murakami",
+    "Shohei Ohtani (auto,autograph)",
+    "(leaf,topps) johnny depp (auto,autograph)",
+    "topps Munetaka Murakami (auto,autograph)",
 ]
 
 MARKETPLACE = "EBAY_US"        # 米国eBayを対象
