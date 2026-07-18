@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# notify.py  (v2: 商品画像つきカード形式・複数件を1通にまとめて送信)
+# notify.py  (v3: 商品画像つきカードを縦に並べて表示)
 # eBay Browse API で新着出品を検索し、前回チェック時になかった「新着だけ」を
 # LINE Messaging API の push message で自分に通知する本体スクリプト。
 # 認証情報はコードに書かず、環境変数から読み込みます。
@@ -20,9 +20,9 @@ LINE_USER_ID = os.environ.get("LINE_USER_ID")
 
 # --- 監視したいキーワード（選手名など）。ここを自由に足し引きする ---
 KEYWORDS = [
-    "Shohei Ohtani (auto,autograph)",
+    "(leaf,topps) samuel jackson (auto,autograph),
     "(leaf,topps) johnny depp (auto,autograph)",
-    "topps Munetaka Murakami (auto,autograph)",
+    "2026 prizm shinji ono (auto,autograph)",
 ]
 
 MARKETPLACE = "EBAY_US"        # 米国eBayを対象
@@ -30,8 +30,9 @@ RESULTS_PER_KEYWORD = 20       # 各キーワードで確認する新着件数
 INCLUDE_AUCTION = True         # True: オークションも含める / False: Buy It Nowのみ
 MAX_NOTIFY_PER_RUN = 10        # 1回の実行で通知する上限（LINEの無料枠を節約）
 
-# LINEのカルーセルは1通あたり最大12枚まで
-BUBBLES_PER_MESSAGE = 10
+# LINEは1リクエストにつき最大5つの吹き出しをまとめて送れる。
+# 通数は「リクエスト数」でカウントされるため、5件ずつまとめると無料枠を節約できる。
+BUBBLES_PER_REQUEST = 5
 
 OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
@@ -225,20 +226,19 @@ def main():
         print(f"新着 {len(new_items)} 件を検出。通知します。")
 
     sent_ids = []
-    # カルーセル（横スクロールのカード束）にまとめて、少ない通数で送る
-    for i in range(0, len(targets), BUBBLES_PER_MESSAGE):
-        chunk = targets[i:i + BUBBLES_PER_MESSAGE]
-        bubbles = [build_bubble(kw, it) for kw, it, _ in chunk]
-        first_title = chunk[0][1].get("title", "新着")
-        alt = f"eBay新着 {len(chunk)}件: {first_title}"[:390]
+    # 1件ごとに独立したカード（縦に並ぶ）を作り、5件ずつ1リクエストで送る
+    for i in range(0, len(targets), BUBBLES_PER_REQUEST):
+        chunk = targets[i:i + BUBBLES_PER_REQUEST]
+        messages = []
+        for kw, it, _ in chunk:
+            title = it.get("title", "新着")
+            messages.append({
+                "type": "flex",
+                "altText": f"eBay新着: {title}"[:390],
+                "contents": build_bubble(kw, it),
+            })
 
-        message = {
-            "type": "flex",
-            "altText": alt,
-            "contents": {"type": "carousel", "contents": bubbles},
-        }
-
-        if line_push_messages([message]):
+        if line_push_messages(messages):
             sent_ids.extend([iid for _, _, iid in chunk])
 
     for iid in sent_ids:
