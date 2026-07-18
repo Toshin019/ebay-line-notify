@@ -1,0 +1,54 @@
+name: eBay新着をLINEに通知
+
+on:
+  # 30分おきに自動実行（UTC基準だが、間隔指定なので時差は関係なし）
+  schedule:
+    - cron: "*/30 * * * *"
+  # 画面のボタンから手動でも実行できるようにする
+  workflow_dispatch:
+
+# seen_items.json をリポジトリに書き戻すために必要な権限
+permissions:
+  contents: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. リポジトリの中身を取ってくる
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      # 2. Pythonを用意する
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. 必要なライブラリ（requests）を入れる
+      - name: ライブラリをインストール
+        run: pip install -r requirements.txt
+
+      # 4. 本体を実行する（秘密情報はSecretsから渡す）
+      - name: 新着チェックと通知
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python notify.py
+
+      # 5. 「通知済みリスト」の更新をリポジトリに保存する
+      #    これをやらないと毎回まっさらになり、同じ出品を何度も通知してしまう
+      - name: 通知済みリストを保存
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seen_items.json
+          if git diff --staged --quiet; then
+            echo "変更なし。保存はスキップします。"
+          else
+            git commit -m "通知済みリストを更新"
+            git push
+          fi
