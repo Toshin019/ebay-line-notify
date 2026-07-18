@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# notify.py
+# notify.py  (v2: 商品画像つきカード形式・複数件を1通にまとめて送信)
 # eBay Browse API で新着出品を検索し、前回チェック時になかった「新着だけ」を
 # LINE Messaging API の push message で自分に通知する本体スクリプト。
 # 認証情報はコードに書かず、環境変数から読み込みます。
@@ -8,8 +8,8 @@
 import base64
 import json
 import os
+import re
 import sys
-import time
 import requests
 
 # --- 認証情報は環境変数から取得（コードには絶対に書かない） ---
@@ -28,13 +28,16 @@ KEYWORDS = [
 MARKETPLACE = "EBAY_US"        # 米国eBayを対象
 RESULTS_PER_KEYWORD = 20       # 各キーワードで確認する新着件数
 INCLUDE_AUCTION = True         # True: オークションも含める / False: Buy It Nowのみ
-MAX_NOTIFY_PER_RUN = 10        # 1回の実行で送る通知の上限（大量通知の防止）
+MAX_NOTIFY_PER_RUN = 10        # 1回の実行で通知する上限（LINEの無料枠を節約）
+
+# LINEのカルーセルは1通あたり最大12枚まで
+BUBBLES_PER_MESSAGE = 10
 
 OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 PUSH_URL = "https://api.line.me/v2/bot/message/push"
 
-# 通知済みの出品IDを覚えておくファイル（このスクリプトと同じフォルダに作られる）
+# 通知済みの出品IDを覚えておくファイル
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(SCRIPT_DIR, "seen_items.json")
 
@@ -86,15 +89,81 @@ def search_newly_listed(token, keyword, limit):
     return r.json().get("itemSummaries", [])
 
 
-def line_push(text):
+def get_image_url(item):
+    """出品の画像URLを取り出す。少し大きめのサイズに差し替える。"""
+    url = (item.get("image") or {}).get("imageUrl")
+    if not url:
+        thumbs = item.get("thumbnailImages") or []
+        if thumbs:
+            url = thumbs[0].get("imageUrl")
+    if not url:
+        return None
+    if not url.startswith("https://"):
+        return None  # LINEはhttpsの画像しか表示できない
+    # eBayの画像URLは末尾が s-l225.jpg のようになっている。大きめの500に差し替える
+    return re.sub(r"/s-l\d+\.(jpg|png|webp)", r"/s-l500.\1", url)
+
+
+def build_bubble(keyword, item):
+    """1件分のカード（バブル）を組み立てる。"""
+    title = item.get("title", "(no title)")
+    price = item.get("price", {}) or {}
+    price_str = f"{price.get('value', '?')} {price.get('currency', '')}".strip()
+    url = item.get("itemWebUrl", "https://www.ebay.com/")
+    options = ", ".join(item.get("buyingOptions", [])) or "-"
+    image_url = get_image_url(item)
+
+    body_contents = [
+        {"type": "text", "text": f"🆕 {keyword}"[:60],
+         "size": "xxs", "color": "#888888", "wrap": True},
+        {"type": "text", "text": title[:150],
+         "weight": "bold", "size": "sm", "wrap": True, "maxLines": 4,
+         "margin": "sm"},
+        {"type": "text", "text": price_str,
+         "size": "xl", "weight": "bold", "color": "#1DB446", "margin": "md"},
+        {"type": "text", "text": options,
+         "size": "xxs", "color": "#AAAAAA", "margin": "xs"},
+    ]
+
+    bubble = {
+        "type": "bubble",
+        "size": "kilo",
+        "body": {"type": "box", "layout": "vertical", "contents": body_contents},
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [{
+                "type": "button",
+                "style": "primary",
+                "height": "sm",
+                "color": "#0064D2",
+                "action": {"type": "uri", "label": "eBayで見る", "uri": url},
+            }],
+        },
+    }
+
+    # 画像があればカード上部に大きく表示（タップでも出品ページへ）
+    if image_url:
+        bubble["hero"] = {
+            "type": "image",
+            "url": image_url,
+            "size": "full",
+            "aspectRatio": "1:1",
+            "aspectMode": "fit",
+            "backgroundColor": "#FFFFFF",
+            "action": {"type": "uri", "uri": url},
+        }
+
+    return bubble
+
+
+def line_push_messages(messages):
+    """組み立てたメッセージをまとめて送信する。"""
     headers = {
         "Authorization": f"Bearer {LINE_TOKEN}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "to": LINE_USER_ID,
-        "messages": [{"type": "text", "text": text}],
-    }
+    payload = {"to": LINE_USER_ID, "messages": messages}
     r = requests.post(PUSH_URL, headers=headers, json=payload, timeout=30)
     if r.status_code != 200:
         print(f"  LINE送信に失敗 (status {r.status_code}): {r.text}")
@@ -103,7 +172,6 @@ def line_push(text):
 
 
 def load_seen():
-    """通知済みIDの集合を読み込む。ファイルが無ければ None（初回）を返す。"""
     if not os.path.exists(STATE_FILE):
         return None
     try:
@@ -118,20 +186,6 @@ def save_seen(seen):
         json.dump(sorted(seen), f, ensure_ascii=False, indent=0)
 
 
-def format_message(keyword, item):
-    title = item.get("title", "(no title)")
-    price = item.get("price", {}) or {}
-    price_str = f"{price.get('value', '?')} {price.get('currency', '')}".strip()
-    url = item.get("itemWebUrl", "")
-    options = ",".join(item.get("buyingOptions", []))
-    return (
-        f"🆕 eBay新着 [{keyword}]\n"
-        f"{title}\n"
-        f"💰 {price_str}  ({options})\n"
-        f"{url}"
-    )
-
-
 def main():
     check_env()
     seen = load_seen()
@@ -141,8 +195,7 @@ def main():
 
     token = get_ebay_token()
 
-    # 全キーワードを検索して、現在の出品を集める
-    current = []  # (keyword, item, item_id) のリスト
+    current = []
     for kw in KEYWORDS:
         items = search_newly_listed(token, kw, RESULTS_PER_KEYWORD)
         for it in items:
@@ -151,7 +204,6 @@ def main():
                 current.append((kw, it, item_id))
 
     if first_run:
-        # 初回は「今ある出品」を基準として記録するだけ。通知はしない（大量通知の防止）
         for _, _, item_id in current:
             seen.add(item_id)
         save_seen(seen)
@@ -159,26 +211,40 @@ def main():
         print("次回以降、新しく出た分だけを通知します。")
         return
 
-    # 前回になかった新着だけを抽出
     new_items = [(kw, it, iid) for (kw, it, iid) in current if iid not in seen]
 
     if not new_items:
         print("新着はありませんでした。")
         return
 
-    print(f"新着 {len(new_items)} 件を検出。通知します。")
-    sent = 0
-    for kw, it, item_id in new_items:
-        if sent >= MAX_NOTIFY_PER_RUN:
-            print(f"（今回は上限{MAX_NOTIFY_PER_RUN}件まで通知。残りは次回に回します）")
-            break
-        if line_push(format_message(kw, it)):
-            seen.add(item_id)  # 送れたものだけ「通知済み」に記録
-            sent += 1
-            time.sleep(0.5)    # 連続送信をやさしく間引く
+    # 上限まで絞る（残りは次回の実行に持ち越し）
+    targets = new_items[:MAX_NOTIFY_PER_RUN]
+    if len(new_items) > MAX_NOTIFY_PER_RUN:
+        print(f"新着 {len(new_items)} 件を検出（今回は{MAX_NOTIFY_PER_RUN}件まで通知）。")
+    else:
+        print(f"新着 {len(new_items)} 件を検出。通知します。")
 
+    sent_ids = []
+    # カルーセル（横スクロールのカード束）にまとめて、少ない通数で送る
+    for i in range(0, len(targets), BUBBLES_PER_MESSAGE):
+        chunk = targets[i:i + BUBBLES_PER_MESSAGE]
+        bubbles = [build_bubble(kw, it) for kw, it, _ in chunk]
+        first_title = chunk[0][1].get("title", "新着")
+        alt = f"eBay新着 {len(chunk)}件: {first_title}"[:390]
+
+        message = {
+            "type": "flex",
+            "altText": alt,
+            "contents": {"type": "carousel", "contents": bubbles},
+        }
+
+        if line_push_messages([message]):
+            sent_ids.extend([iid for _, _, iid in chunk])
+
+    for iid in sent_ids:
+        seen.add(iid)
     save_seen(seen)
-    print(f"{sent} 件を通知しました。")
+    print(f"{len(sent_ids)} 件を通知しました。")
 
 
 if __name__ == "__main__":
