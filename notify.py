@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# notify.py  (v3: 商品画像つきカードを縦に並べて表示)
+# notify.py  (v4: タップでeBayアプリが開くようURLを調整)
 # eBay Browse API で新着出品を検索し、前回チェック時になかった「新着だけ」を
 # LINE Messaging API の push message で自分に通知する本体スクリプト。
 # 認証情報はコードに書かず、環境変数から読み込みます。
@@ -105,12 +105,29 @@ def get_image_url(item):
     return re.sub(r"/s-l\d+\.(jpg|png|webp)", r"/s-l500.\1", url)
 
 
+def build_item_url(item):
+    """出品ページのURLを、余計な追跡パラメータを外した形に整える。
+    さらに openExternalBrowser=1 を付け、LINE内ブラウザではなく
+    端末の標準ブラウザ（iPhoneならSafari）で開くようにする。
+    Safariで開くとeBayアプリがインストールされていればアプリに引き継がれる。"""
+    raw = item.get("itemWebUrl", "")
+    m = re.search(r"/itm/(\d+)", raw)
+    if m:
+        clean = f"https://www.ebay.com/itm/{m.group(1)}"
+    elif raw.startswith("https://"):
+        clean = raw.split("?")[0]   # クエリ部分を落とす
+    else:
+        clean = "https://www.ebay.com/"
+    sep = "&" if "?" in clean else "?"
+    return f"{clean}{sep}openExternalBrowser=1"
+
+
 def build_bubble(keyword, item):
     """1件分のカード（バブル）を組み立てる。"""
     title = item.get("title", "(no title)")
     price = item.get("price", {}) or {}
     price_str = f"{price.get('value', '?')} {price.get('currency', '')}".strip()
-    url = item.get("itemWebUrl", "https://www.ebay.com/")
+    url = build_item_url(item)
     options = ", ".join(item.get("buyingOptions", [])) or "-"
     image_url = get_image_url(item)
 
