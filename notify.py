@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# notify.py  (v4: タップでeBayアプリが開くようURLを調整)
+# notify.py  (v5: 古い出品を通知しない足切りを追加)
 # eBay Browse API で新着出品を検索し、前回チェック時になかった「新着だけ」を
 # LINE Messaging API の push message で自分に通知する本体スクリプト。
 # 認証情報はコードに書かず、環境変数から読み込みます。
@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 import requests
 
 # --- 認証情報は環境変数から取得（コードには絶対に書かない） ---
@@ -22,13 +23,15 @@ LINE_USER_ID = os.environ.get("LINE_USER_ID")
 KEYWORDS = [
     "(leaf,topps) samuel jackson (auto,autograph)",
     "(leaf,topps) johnny depp (auto,autograph)",
-    "2026 prizm shinji ono (auto,autograph)",
+    "2026 prizm shinji ono gold (auto,autograph)",
 ]
 
 MARKETPLACE = "EBAY_US"        # 米国eBayを対象
 RESULTS_PER_KEYWORD = 20       # 各キーワードで確認する新着件数
 INCLUDE_AUCTION = True         # True: オークションも含める / False: Buy It Nowのみ
 MAX_NOTIFY_PER_RUN = 10        # 1回の実行で通知する上限（LINEの無料枠を節約）
+# 出品されてからこの時間より古いものは通知しない（古い出品の掘り起こしを防ぐ）
+MAX_AGE_HOURS = 24
 
 # LINEは1リクエストにつき最大5つの吹き出しをまとめて送れる。
 # 通数は「リクエスト数」でカウントされるため、5件ずつまとめると無料枠を節約できる。
@@ -103,6 +106,19 @@ def get_image_url(item):
         return None  # LINEはhttpsの画像しか表示できない
     # eBayの画像URLは末尾が s-l225.jpg のようになっている。大きめの500に差し替える
     return re.sub(r"/s-l\d+\.(jpg|png|webp)", r"/s-l500.\1", url)
+
+
+def is_fresh(item):
+    """出品日時が MAX_AGE_HOURS 以内かどうかを判定する。
+    日時が取れない場合は安全側に倒して「新しい」とみなす。"""
+    created = item.get("itemCreationDate")
+    if not created:
+        return True
+    try:
+        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return dt >= datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
 
 
 def build_item_url(item):
@@ -229,9 +245,22 @@ def main():
         print("次回以降、新しく出た分だけを通知します。")
         return
 
-    new_items = [(kw, it, iid) for (kw, it, iid) in current if iid not in seen]
+    unseen = [(kw, it, iid) for (kw, it, iid) in current if iid not in seen]
+
+    # 出品が古いものは「通知せずに既読扱い」にして、以後は対象から外す
+    new_items = []
+    stale = 0
+    for kw, it, iid in unseen:
+        if is_fresh(it):
+            new_items.append((kw, it, iid))
+        else:
+            seen.add(iid)
+            stale += 1
+    if stale:
+        print(f"{stale} 件は出品から{MAX_AGE_HOURS}時間以上経過しているため通知しません。")
 
     if not new_items:
+        save_seen(seen)
         print("新着はありませんでした。")
         return
 
