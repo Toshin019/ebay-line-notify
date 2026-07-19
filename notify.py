@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# notify.py  (v5: 古い出品を通知しない足切りを追加)
+# notify.py  (v6: Buy It Now限定＋キーワードごとの価格上限)
 # eBay Browse API で新着出品を検索し、前回チェック時になかった「新着だけ」を
 # LINE Messaging API の push message で自分に通知する本体スクリプト。
 # 認証情報はコードに書かず、環境変数から読み込みます。
@@ -20,15 +20,17 @@ LINE_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_USER_ID = os.environ.get("LINE_USER_ID")
 
 # --- 監視したいキーワード（選手名など）。ここを自由に足し引きする ---
+# q         : 検索キーワード
+# max_price : この価格（USD）以下だけ通知する。上限なしにしたいときは None
 KEYWORDS = [
-    "(leaf,topps) samuel jackson (auto,autograph)",
-    "(leaf,topps) johnny depp (auto,autograph)",
-    "2026 prizm shinji ono gold (auto,autograph)",
+    {"q": "(leaf,topps) samuel jackson (auto,autograph)", "max_price": 500},
+    {"q": "(leaf,topps) johnny depp (auto,autograph)",    "max_price": 700},
+    {"q": "2026 prizm shinji ono gold (auto,autograph)",  "max_price": 300},
 ]
 
 MARKETPLACE = "EBAY_US"        # 米国eBayを対象
 RESULTS_PER_KEYWORD = 20       # 各キーワードで確認する新着件数
-INCLUDE_AUCTION = True         # True: オークションも含める / False: Buy It Nowのみ
+INCLUDE_AUCTION = False        # True: オークションも含める / False: Buy It Nowのみ
 MAX_NOTIFY_PER_RUN = 10        # 1回の実行で通知する上限（LINEの無料枠を節約）
 # 出品されてからこの時間より古いものは通知しない（古い出品の掘り起こしを防ぐ）
 MAX_AGE_HOURS = 24
@@ -74,7 +76,7 @@ def get_ebay_token():
     return r.json()["access_token"]
 
 
-def search_newly_listed(token, keyword, limit):
+def search_newly_listed(token, keyword, max_price, limit):
     headers = {
         "Authorization": f"Bearer {token}",
         "X-EBAY-C-MARKETPLACE-ID": MARKETPLACE,
@@ -84,8 +86,18 @@ def search_newly_listed(token, keyword, limit):
         "sort": "newlyListed",
         "limit": limit,
     }
+
+    # eBay側で絞り込んでもらう（余計なデータを受け取らずに済む）
+    filters = []
     if INCLUDE_AUCTION:
-        params["filter"] = "buyingOptions:{AUCTION|FIXED_PRICE}"
+        filters.append("buyingOptions:{AUCTION|FIXED_PRICE}")
+    else:
+        filters.append("buyingOptions:{FIXED_PRICE}")
+    if max_price:
+        filters.append(f"price:[..{max_price}]")
+        filters.append("priceCurrency:USD")
+    params["filter"] = ",".join(filters)
+
     r = requests.get(SEARCH_URL, headers=headers, params=params, timeout=30)
     if r.status_code != 200:
         print(f"  [{keyword}] 検索に失敗 (status {r.status_code}): {r.text}")
@@ -230,8 +242,13 @@ def main():
     token = get_ebay_token()
 
     current = []
-    for kw in KEYWORDS:
-        items = search_newly_listed(token, kw, RESULTS_PER_KEYWORD)
+    for entry in KEYWORDS:
+        # 文字列だけで書かれていた場合にも対応する
+        if isinstance(entry, str):
+            entry = {"q": entry, "max_price": None}
+        kw = entry["q"]
+        max_price = entry.get("max_price")
+        items = search_newly_listed(token, kw, max_price, RESULTS_PER_KEYWORD)
         for it in items:
             item_id = it.get("itemId")
             if item_id:
