@@ -24,7 +24,7 @@ LINE_USER_ID = os.environ.get("LINE_USER_ID")
 # max_price : この価格（USD）以下だけ通知する。上限なしにしたいときは None
 KEYWORDS = [
     {"q": "(leaf,topps) samuel jackson (auto,autograph)", "max_price": 500},
-    {"q": "(leaf,topps) johnny depp (auto,autograph)",    "max_price": 700},
+    {"q": "(leaf,topps) johnny depp (auto,autograph) -1987",    "max_price": 700},
     {"q": "2026 prizm shinji ono gold (auto,autograph)",  "max_price": 300},
     {"q": "topps munetaka murakami (auto,autograph)",    "max_price": 2000},
 ]
