@@ -25,7 +25,7 @@ LINE_USER_ID = os.environ.get("LINE_USER_ID")
 KEYWORDS = [
     {"q": "(leaf,topps) samuel jackson (auto,autograph)", "max_price": 500},
     {"q": "(leaf,topps) johnny depp (auto,autograph)",    "max_price": 700},
-    {"q": "2026 prizm shinji ono gold (auto,autograph)",  "max_price": 300}
+    {"q": "2026 prizm shinji ono gold (auto,autograph)",  "max_price": 300},
     {"q": "topps munetaka murakami (auto,autograph)",    "max_price": 2000},
 ]
 
