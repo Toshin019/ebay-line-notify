@@ -24,9 +24,15 @@ LINE_USER_ID = os.environ.get("LINE_USER_ID")
 # max_price : この価格（USD）以下だけ通知する。上限なしにしたいときは None
 KEYWORDS = [
     {"q": "(leaf,topps) samuel jackson (auto,autograph)", "max_price": 500},
-    {"q": "(leaf,topps) johnny depp (auto,autograph) -1987",    "max_price": 700},
-    {"q": "2026 prizm shinji ono gold (auto,autograph)",  "max_price": 300},
-    {"q": "topps munetaka murakami (auto,autograph)",    "max_price": 2000},
+    {"q": "leaf ring king manny pacquiao (auto,autograph) -break", "max_price": 400},
+    {"q": "2026 upper deck matsuyama (auto,autograph) -break -psa", "max_price": 300},
+    {"q": "topps kaishu sano (black,red,/10,/5/1/1) (auto,autograph) -break", "max_price": 200},
+    {"q": "exquisite sasaki (auto,autograph) -break", "max_price": 200},
+    {"q": "trishula (ap08,dt04) ", "max_price": 200},
+    {"q": "leaf takemoto (auto,autograph) ", "max_price": 100},
+    {"q": "(leaf,topps) johnny depp (auto,autograph) -1987", "max_price": 700},
+    {"q": "2026 prizm shinji ono gold (auto,autograph)", "max_price": 300},
+    {"q": "topps munetaka murakami (auto,autograph)", "max_price": 2000},
 ]
 
 MARKETPLACE = "EBAY_US"        # 米国eBayを対象
