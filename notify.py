@@ -31,8 +31,7 @@ KEYWORDS = [
     {"q": "trishula (ap08,dt04) ", "max_price": 200},
     {"q": "leaf takemoto (auto,autograph) ", "max_price": 100},
     {"q": "(leaf,topps) johnny depp (auto,autograph) -1987", "max_price": 700},
-    {"q": "2026 prizm shinji ono gold (auto,autograph)", "max_price": 300},
-    {"q": "topps munetaka murakami (auto,autograph)", "max_price": 2000},
+    {"q": "2026 prizm shinji ono (gold,silver) (auto,autograph)", "max_price": 300},
 ]
 
 MARKETPLACE = "EBAY_US"        # 米国eBayを対象
