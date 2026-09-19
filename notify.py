@@ -30,7 +30,7 @@ KEYWORDS = [
     {"q": "exquisite sasaki (auto,autograph) -break", "max_price": 200},
     {"q": "trishula (ap08,dt04) ", "max_price": 200},
     {"q": "leaf takemoto (auto,autograph) ", "max_price": 100},
-    {"q": "(leaf,topps) johnny depp (auto,autograph) -1987", "max_price": 700},
+    {"q": "(leaf,topps) johnny depp (auto,autograph) -1987 -digital", "max_price": 700},
     {"q": "2026 prizm shinji ono (gold,silver) (auto,autograph)", "max_price": 300},
 ]
 
